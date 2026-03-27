@@ -1,106 +1,52 @@
 # second-round-assignm-final-16434-gaurav
-# E-commerce Backend System
-
-Spring Boot backend implementing authentication, product management, cart system, order processing, and payment integration.
-
----
-
-## Architecture
-
-* Layered design (Controller → Service → Repository)
-* JWT-based authentication
-* BCrypt password hashing
-* RESTful API design
-* Unit tested services
+# E-commerce Backend (Final)
 
 ---
 
 ## 1. Entities
 
 ```java
-package com.ecommerce.entity;
-
-import jakarta.persistence.*;
-import java.util.*;
-
 @Entity
-@Table(name="users")
 class User {
-    @Id @GeneratedValue(strategy=GenerationType.IDENTITY)
-    private Long id;
-
-    @Column(unique=true)
-    private String username;
-
-    private String email;
-    private String password;
-    private String role;
-
-    @OneToMany(mappedBy="user")
-    private List<Order> orders;
-    
-    public User(){}
-    public String getUsername(){return username;}
-    public String getPassword(){return password;}
-    public void setUsername(String u){this.username=u;}
-    public void setPassword(String p){this.password=p;}
-    public void setRole(String r){this.role=r;}
+    @Id @GeneratedValue Long id;
+    @Column(unique = true) String username;
+    String password;
+    String role;
 }
+```
 
+```java
 @Entity
 class Product {
-    @Id @GeneratedValue(strategy=GenerationType.IDENTITY)
-    private Long id;
-
-    private String name;
-    private String description;
-    private double price;
-    private int stock;
-    private String imageUrl;
-
-    public double getPrice(){return price;}
-    public int getStock(){return stock;}
-    public void setPrice(double p){this.price=p;}
-    public void setStock(int s){this.stock=s;}
+    @Id @GeneratedValue Long id;
+    String name;
+    double price;
+    int stock;
 }
+```
 
+```java
 @Entity
 class CartItem {
-    @Id @GeneratedValue(strategy=GenerationType.IDENTITY)
-    private Long id;
+    @Id @GeneratedValue Long id;
 
-    @ManyToOne private User user;
-    @ManyToOne private Product product;
+    @ManyToOne User user;
+    @ManyToOne Product product;
 
-    private int quantity;
-
-    public void setUser(User u){this.user=u;}
-    public void setProduct(Product p){this.product=p;}
-    public void setQuantity(int q){this.quantity=q;}
-    public Product getProduct(){return product;}
-    public int getQuantity(){return quantity;}
+    int quantity;
 }
+```
 
+```java
 @Entity
-@Table(name="orders")
 class Order {
-    @Id @GeneratedValue(strategy=GenerationType.IDENTITY)
-    private Long id;
+    @Id @GeneratedValue Long id;
 
-    @ManyToOne private User user;
+    @ManyToOne User user;
+    @ManyToMany List<Product> products;
 
-    @ManyToMany
-    private List<Product> products;
-
-    private double totalPrice;
-    private String status;
-    private String address;
-
-    public void setUser(User u){this.user=u;}
-    public void setProducts(List<Product> p){this.products=p;}
-    public void setTotalPrice(double t){this.totalPrice=t;}
-    public void setStatus(String s){this.status=s;}
-    public double getTotalPrice(){return totalPrice;}
+    double totalPrice;
+    String status;
 }
 ```
 
@@ -109,47 +55,36 @@ class Order {
 ## 2. Repositories
 
 ```java
-package com.ecommerce.repository;
-
-import com.ecommerce.entity.*;
-import org.springframework.data.jpa.repository.JpaRepository;
-import java.util.*;
-
-interface UserRepository extends JpaRepository<User,Long>{
+interface UserRepository extends JpaRepository<User, Long> {
     Optional<User> findByUsername(String username);
 }
 
-interface ProductRepository extends JpaRepository<Product,Long>{}
-interface CartRepository extends JpaRepository<CartItem,Long>{
+interface ProductRepository extends JpaRepository<Product, Long> {}
+interface CartRepository extends JpaRepository<CartItem, Long> {
     List<CartItem> findByUser(User user);
 }
-interface OrderRepository extends JpaRepository<Order,Long>{}
+interface OrderRepository extends JpaRepository<Order, Long> {}
 ```
 
 ---
 
-## 3. Security (JWT)
+## 3. JWT
 
 ```java
-package com.ecommerce.security;
-
-import io.jsonwebtoken.*;
-import java.util.Date;
-
+@Component
 class JwtUtil {
 
-    private final String secret="secret";
+    @Value("${jwt.secret}")
+    private String secret;
 
-    public String generateToken(String username){
+    public String generate(String username) {
         return Jwts.builder()
                 .setSubject(username)
-                .setIssuedAt(new Date())
-                .setExpiration(new Date(System.currentTimeMillis()+86400000))
-                .signWith(SignatureAlgorithm.HS256,secret)
+                .signWith(SignatureAlgorithm.HS256, secret)
                 .compact();
     }
 
-    public String extractUsername(String token){
+    public String extract(String token) {
         return Jwts.parser().setSigningKey(secret)
                 .parseClaimsJws(token).getBody().getSubject();
     }
@@ -158,19 +93,58 @@ class JwtUtil {
 
 ---
 
-## 4. Exception Handling
+## 4. Security
 
 ```java
-package com.ecommerce.exception;
+@Configuration
+class SecurityConfig {
 
-import org.springframework.web.bind.annotation.*;
+    @Bean
+    BCryptPasswordEncoder encoder() {
+        return new BCryptPasswordEncoder();
+    }
 
-@RestControllerAdvice
-class GlobalExceptionHandler {
+    @Bean
+    SecurityFilterChain filter(HttpSecurity http, JwtFilter filter) throws Exception {
 
-    @ExceptionHandler(RuntimeException.class)
-    public String handle(RuntimeException ex){
-        return ex.getMessage();
+        http.csrf().disable()
+                .authorizeHttpRequests(a -> a
+                        .requestMatchers("/auth/**").permitAll()
+                        .anyRequest().authenticated()
+                )
+                .addFilterBefore(filter,
+                        UsernamePasswordAuthenticationFilter.class);
+
+        return http.build();
+    }
+}
+```
+
+```java
+@Component
+class JwtFilter extends GenericFilter {
+
+    @Autowired JwtUtil jwt;
+    @Autowired UserRepository repo;
+
+    public void doFilter(ServletRequest req, ServletResponse res, FilterChain chain)
+            throws IOException, ServletException {
+
+        HttpServletRequest r = (HttpServletRequest) req;
+        String h = r.getHeader("Authorization");
+
+        if (h != null && h.startsWith("Bearer ")) {
+            String user = jwt.extract(h.substring(7));
+
+            var u = repo.findByUsername(user).orElseThrow();
+
+            var auth = new UsernamePasswordAuthenticationToken(
+                    u.getUsername(), null, List.of());
+
+            SecurityContextHolder.getContext().setAuthentication(auth);
+        }
+
+        chain.doFilter(req, res);
     }
 }
 ```
@@ -180,123 +154,100 @@ class GlobalExceptionHandler {
 ## 5. Services
 
 ```java
-package com.ecommerce.service;
-
-import com.ecommerce.entity.*;
-import com.ecommerce.repository.*;
-import com.ecommerce.security.JwtUtil;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
-import java.util.*;
-
+@Service
 class AuthService {
 
-    private final UserRepository repo;
-    private final BCryptPasswordEncoder encoder=new BCryptPasswordEncoder();
-    private final JwtUtil jwt=new JwtUtil();
+    @Autowired UserRepository repo;
+    @Autowired BCryptPasswordEncoder encoder;
+    @Autowired JwtUtil jwt;
 
-    public AuthService(UserRepository r){this.repo=r;}
-
-    public String register(User user){
-        user.setPassword(encoder.encode(user.getPassword()));
-        user.setRole("USER");
-        repo.save(user);
-        return jwt.generateToken(user.getUsername());
+    public String register(User u) {
+        u.setPassword(encoder.encode(u.getPassword()));
+        u.setRole("USER");
+        repo.save(u);
+        return jwt.generate(u.getUsername());
     }
 
-    public String login(String username,String password){
-        User u=repo.findByUsername(username)
-                .orElseThrow(()->new RuntimeException("User not found"));
+    public String login(String user, String pass) {
+        var u = repo.findByUsername(user).orElseThrow();
 
-        if(!encoder.matches(password,u.getPassword())){
-            throw new RuntimeException("Invalid credentials");
-        }
+        if (!encoder.matches(pass, u.getPassword()))
+            throw new RuntimeException("Invalid");
 
-        return jwt.generateToken(username);
+        return jwt.generate(user);
     }
 }
+```
 
+```java
+@Service
 class ProductService {
-    private final ProductRepository repo;
 
-    public ProductService(ProductRepository r){this.repo=r;}
+    @Autowired ProductRepository repo;
 
-    public Product save(Product p){
-        if(p.getPrice()<=0) throw new RuntimeException("Invalid price");
+    public Product save(Product p) {
+        if (p.getPrice() <= 0) throw new RuntimeException();
         return repo.save(p);
     }
 
-    public List<Product> getAll(){
+    public List<Product> get() {
         return repo.findAll();
     }
 }
+```
 
+```java
+@Service
 class CartService {
-    private final CartRepository cartRepo;
-    private final ProductRepository productRepo;
 
-    public CartService(CartRepository c,ProductRepository p){
-        this.cartRepo=c; this.productRepo=p;
-    }
+    @Autowired CartRepository cart;
+    @Autowired ProductRepository product;
 
-    public CartItem add(User user,Long pid,int qty){
-        if(qty<=0) throw new RuntimeException("Invalid quantity");
+    public CartItem add(User u, Long pid, int qty) {
 
-        Product p=productRepo.findById(pid)
-                .orElseThrow(()->new RuntimeException("Product not found"));
+        if (qty <= 0) throw new RuntimeException();
 
-        if(p.getStock()<qty)
-            throw new RuntimeException("Insufficient stock");
+        var p = product.findById(pid).orElseThrow();
 
-        CartItem item=new CartItem();
-        item.setUser(user);
-        item.setProduct(p);
-        item.setQuantity(qty);
+        if (p.getStock() < qty) throw new RuntimeException();
 
-        return cartRepo.save(item);
-    }
+        CartItem i = new CartItem();
+        i.user = u;
+        i.product = p;
+        i.quantity = qty;
 
-    public List<CartItem> get(User user){
-        return cartRepo.findByUser(user);
+        return cart.save(i);
     }
 }
+```
 
+```java
+@Service
 class OrderService {
 
-    private final OrderRepository orderRepo;
-    private final CartRepository cartRepo;
+    @Autowired CartRepository cart;
+    @Autowired OrderRepository order;
 
-    public OrderService(OrderRepository o,CartRepository c){
-        this.orderRepo=o; this.cartRepo=c;
-    }
+    public Order place(User u) {
 
-    public Order place(User user,String address){
+        var items = cart.findByUser(u);
 
-        List<CartItem> items=cartRepo.findByUser(user);
+        if (items.isEmpty()) throw new RuntimeException();
 
-        if(items.isEmpty())
-            throw new RuntimeException("Cart empty");
+        Order o = new Order();
+        o.user = u;
+        o.products = items.stream().map(i -> i.product).toList();
 
-        Order order=new Order();
-        order.setUser(user);
-        order.setProducts(items.stream().map(CartItem::getProduct).toList());
-
-        double total=items.stream()
-                .mapToDouble(i->i.getProduct().getPrice()*i.getQuantity())
+        double total = items.stream()
+                .mapToDouble(i -> i.product.getPrice() * i.quantity)
                 .sum();
 
-        order.setTotalPrice(total);
-        order.setStatus("PAID");
+        o.totalPrice = total;
+        o.status = "PAID";
 
-        cartRepo.deleteAll(items);
+        cart.deleteAll(items);
 
-        return orderRepo.save(order);
-    }
-}
-
-class PaymentService {
-    public String pay(double amount){
-        if(amount<=0) throw new RuntimeException("Invalid amount");
-        return "SUCCESS";
+        return order.save(o);
     }
 }
 ```
@@ -306,125 +257,133 @@ class PaymentService {
 ## 6. Controllers
 
 ```java
-package com.ecommerce.controller;
-
-import com.ecommerce.entity.*;
-import com.ecommerce.service.*;
-import org.springframework.web.bind.annotation.*;
-import java.util.*;
-
 @RestController
 @RequestMapping("/auth")
 class AuthController {
 
-    private final AuthService service;
-
-    public AuthController(AuthService s){this.service=s;}
+    @Autowired AuthService service;
 
     @PostMapping("/register")
-    public String register(@RequestBody User u){
+    public String register(@RequestBody User u) {
         return service.register(u);
     }
 
     @PostMapping("/login")
-    public String login(@RequestBody User u){
-        return service.login(u.getUsername(),u.getPassword());
+    public String login(@RequestBody User u) {
+        return service.login(u.getUsername(), u.getPassword());
     }
 }
+```
 
+```java
 @RestController
 @RequestMapping("/products")
 class ProductController {
 
-    private final ProductService service;
-
-    public ProductController(ProductService s){this.service=s;}
+    @Autowired ProductService service;
 
     @PostMapping
-    public Product add(@RequestBody Product p){
+    public Product add(@RequestBody Product p) {
         return service.save(p);
     }
 
     @GetMapping
-    public List<Product> get(){
-        return service.getAll();
+    public List<Product> get() {
+        return service.get();
     }
 }
+```
 
+```java
 @RestController
 @RequestMapping("/cart")
 class CartController {
 
-    private final CartService service;
-
-    public CartController(CartService s){this.service=s;}
-
-    @PostMapping
-    public CartItem add(@RequestBody User u,@RequestParam Long pid,@RequestParam int qty){
-        return service.add(u,pid,qty);
-    }
-
-    @GetMapping
-    public List<CartItem> get(@RequestBody User u){
-        return service.get(u);
-    }
-}
-
-@RestController
-@RequestMapping("/payment")
-class PaymentController {
-
-    private final PaymentService service;
-
-    public PaymentController(PaymentService s){this.service=s;}
+    @Autowired CartService service;
+    @Autowired UserRepository repo;
 
     @PostMapping
-    public String pay(@RequestParam double amount){
-        return service.pay(amount);
+    public CartItem add(Authentication auth,
+                        @RequestParam Long pid,
+                        @RequestParam int qty) {
+
+        var user = repo.findByUsername(auth.getName()).orElseThrow();
+        return service.add(user, pid, qty);
     }
 }
 ```
 
 ---
 
-## 7. Unit Tests
+## 7. Exception Handler
 
 ```java
-package com.ecommerce.service;
+@RestControllerAdvice
+class GlobalHandler {
 
-import org.junit.jupiter.api.Test;
-import static org.junit.jupiter.api.Assertions.*;
-
-class ServiceTest {
-
-    @Test
-    void testOrderCalculation(){
-        double total=2*150;
-        assertEquals(300,total);
-    }
-
-    @Test
-    void testValidation(){
-        assertThrows(RuntimeException.class,()->{
-            if(0<=0) throw new RuntimeException();
-        });
+    @ExceptionHandler(RuntimeException.class)
+    public String handle(RuntimeException e) {
+        return e.getMessage();
     }
 }
 ```
 
 ---
 
-## Features Covered
+## 8. Payment
 
-* JWT Authentication
-* Password hashing using BCrypt
-* Product CRUD operations
-* Cart management
-* Order processing with validation
-* Payment handling
-* Exception handling
-* Unit testing with JUnit
-* Data integrity checks
-* RESTful API design
+```java
+@Service
+class PaymentService {
+
+    public String pay(double amount) {
+        if (amount <= 0) throw new RuntimeException();
+        return "SUCCESS";
+    }
+}
+```
+
+---
+
+## 9. Unit Tests
+
+```java
+class AuthServiceTest {
+
+    @Test
+    void testPasswordHash() {
+        BCryptPasswordEncoder e = new BCryptPasswordEncoder();
+        String raw = "123";
+        String hash = e.encode(raw);
+
+        assertTrue(e.matches(raw, hash));
+    }
+}
+```
+
+```java
+class OrderServiceTest {
+
+    @Test
+    void testTotal() {
+        double total = 2 * 100;
+        assertEquals(200, total);
+    }
+}
+```
+
+---
+
+## 10. application.properties
+
+```
+spring.datasource.url=jdbc:mysql://localhost:3306/ecommerce
+spring.datasource.username=root
+spring.datasource.password=root
+
+spring.jpa.hibernate.ddl-auto=update
+
+jwt.secret=securekey
+```
 
 ---
