@@ -2,15 +2,7 @@
 # E-commerce Backend Assignment
 
 ## Project Overview
-This project is a complete backend implementation of an E-commerce system using Spring Boot.
-
-## Features
-- JWT Authentication & Authorization
-- Product Management (CRUD)
-- Cart Management
-- Order Processing
-- Payment Integration (Stripe/Mock)
-- Unit Testing (JUnit + Mockito)
+This project is a complete backend implementation of an E-commerce system using Spring Boot. It includes secure authentication, product management, cart handling, order processing, and payment integration.
 
 ## Tech Stack
 - Java
@@ -18,17 +10,27 @@ This project is a complete backend implementation of an E-commerce system using 
 - Spring Security (JWT)
 - MySQL
 - Hibernate / JPA
+- JUnit & Mockito (Testing)
 
-## Project Repository
-Due to lack of write access to this repository, the complete implementation is available at:
+## Features
+- JWT Authentication & Authorization
+- Product Management (CRUD APIs)
+- Cart Management (Add, Update, Remove items)
+- Order Processing with total price calculation
+- Payment Integration (Mock/Stripe-ready)
+- Global Exception Handling
+- Unit Testing for core services
 
-👉 https://github.com/gauravum2808-pixel/ecommerce-backend/tree/main/ecommerce-backend
+## Project Structure
+src/main/java/com/ecommerce/
+├── config
+├── controller
+├── service
+├── repository
+├── entity
+├── security
+└── exception
 
-## Testing
-- APIs tested using Postman
-- Unit tests implemented and passed
+src/test/java/com/ecommerce/
+└── service (Unit Tests)
 
-## How to Run
-1. Configure MySQL in application.properties
-2. Run Spring Boot application
-3. Test APIs using Postman
